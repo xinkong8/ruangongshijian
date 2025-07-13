@@ -1,117 +1,188 @@
-# robot_pose_publisher_ros2
+# ROS2 机器人位姿发布包 README 文档
 
-This is ros2 verison of [robot_pose_publisher](https://github.com/GT-RAIL/robot_pose_publisher)
-
-
-# ROS2 节点 README 文档
-
-## 节点名称
-**robot_pose_publisher**
+## 包名称
+**robot_pose_publisher_ros2**
 
 ## 功能描述
-该节点的主要功能是基于TF（变换框架）获取机器人在地图坐标系（`/map`）下的位姿，并将其发布为`geometry_msgs/msg/PoseStamped`或`geometry_msgs/msg/Pose`消息。节点通过定时器定期查询TF变换，获取机器人在地图坐标系中的位置和姿态，并将这些信息封装到相应的消息类型中进行发布，供其他节点使用。
+该包提供机器人位姿发布功能，基于TF变换计算机器人在地图坐标系中的位置和姿态，并以标准ROS消息格式发布。主要用于机器人定位、导航状态监控和上层应用的位姿获取。
 
-## 订阅接口
-该节点没有显式的订阅接口，因为它依赖于TF（变换框架）来获取机器人位姿信息。节点通过`tf2_ros::TransformListener`监听TF变换，从`/map`到`/base_link`的变换被用于计算机器人位姿。
+## 节点列表
 
-## 发布接口
-| 话题名称      | 消息类型                                      | 发布内容描述                     |
-|:--------------|:----------------------------------------------|:-------------------------------|
-| `/robot_pose` | `geometry_msgs/msg/PoseStamped` 或 `geometry_msgs/msg/Pose` | 发布机器人在地图坐标系下的位姿数据 |
+### 1. robot_pose_publisher (机器人位姿发布节点)
+- **节点名称**: `robot_pose_publisher`
+- **可执行文件**: `robot_pose_publisher`
+- **功能**: 实时发布机器人在地图坐标系中的位姿信息
 
-## 其他信息
+#### 发布接口
+| 话题名称 | 消息类型 | 描述 |
+|:---------|:---------|:-----|
+| `/robot_pose` | `geometry_msgs/msg/Pose` | 发布机器人位姿(非时间戳版本) |
+| `/robot_pose` | `geometry_msgs/msg/PoseStamped` | 发布机器人位姿(时间戳版本) |
 
-### 代码中的问题
-1. **异常处理不够完善**：
-   - 在`timer_callback`函数中，如果TF查询失败，异常被捕获但没有记录具体的错误信息，这在调试时可能会导致问题难以定位。
+#### 订阅接口
+无直接订阅接口，通过TF监听器获取坐标变换信息
 
-2. **参数验证不足**：
-   - 节点中使用了参数`map_frame`、`base_frame`和`is_stamped`，但在代码中没有对这些参数进行充分的验证，可能导致节点在运行时出现意外行为。
+#### 参数配置
+| 参数名称 | 类型 | 默认值 | 描述 |
+|:---------|:-----|:-------|:-----|
+| `map_frame` | string | "map" | 地图坐标系名称 |
+| `base_frame` | string | "base_link" | 机器人基座坐标系名称 |
+| `is_stamped` | bool | false | 是否发布带时间戳的位姿消息 |
 
-3. **资源管理问题**：
-   - 在节点构造函数中，创建了多个共享指针（如`tf_buffer_`、`tf_listener_`、`publisher_stamp`、`publisher_`），但在节点销毁时没有明确释放这些资源，可能导致资源泄漏。
+#### 定时器配置
+- **发布频率**: 20Hz (每50ms发布一次)
+- **定时器类型**: Wall Timer (实时定时器)
 
-4. **日志输出不够详细**：
-   - 节点在运行过程中缺乏足够的日志输出，无法方便地监控节点的状态和数据流动。
+## 启动文件
 
-### 修改建议
-1. **完善异常处理**：
-   - 在异常处理中添加具体的错误信息，方便调试和问题定位。
-   - 修改代码：
-     ```cpp
-     void timer_callback()
-     {
-         geometry_msgs::msg::TransformStamped transformStamped;
-         try
-         {
-             transformStamped = tf_buffer_->lookupTransform(map_frame, base_frame, this->now());
-         }
-         catch (tf2::TransformException &ex)
-         {
-             RCLCPP_ERROR(this->get_logger(), "Failed to lookup transform: %s", ex.what());
-             return;
-         }
-         // 其他逻辑...
-     }
-     ```
+### robot_pose_publisher_launch.py
+- **功能**: 启动机器人位姿发布节点
+- **包含组件**:
+  - robot_pose_publisher节点
+- **可配置参数**:
+  - 地图坐标系名称
+  - 基座坐标系名称
+  - 输出消息类型
 
-2. **添加参数验证**：
-   - 在设置参数后，添加验证逻辑，确保参数值合理。
-   - 示例修改：
-     ```cpp
-     RobotPosePublisher() : Node("robot_pose_publisher")
-     {
-         // 参数声明和获取...
-         if (map_frame.empty() || base_frame.empty())
-         {
-             RCLCPP_ERROR(this->get_logger(), "Invalid frame parameters");
-             throw std::runtime_error("Invalid frame parameters");
-         }
-         // 其他逻辑...
-     }
-     ```
+## 核心功能
 
-3. **优化资源管理**：
-   - 在节点析构函数中明确释放共享资源，确保没有资源泄漏。
-   - 修改代码：
-     ```cpp
-     ~RobotPosePublisher()
-     {
-         tf_buffer_.reset();
-         tf_listener_.reset();
-         publisher_stamp.reset();
-         publisher_.reset();
-     }
-     ```
+### 1. TF监听
+- 监听地图坐标系到机器人基座坐标系的变换
+- 实时获取机器人位置和姿态信息
+- 自动处理坐标变换异常
 
-4. **添加详细日志输出**：
-   - 在关键步骤添加日志输出，方便监控节点运行状态。
-   - 示例修改：
-     ```cpp
-     void timer_callback()
-     {
-         // 查询TF变换...
-         RCLCPP_INFO(this->get_logger(), "Published robot pose: (%.2f, %.2f, %.2f)", 
-             pose_stamped.pose.position.x, 
-             pose_stamped.pose.position.y, 
-             pose_stamped.pose.position.z);
-         // 发布消息...
-     }
-     ```
+### 2. 位姿计算
+- 基于TF变换计算机器人位姿
+- 支持位置(x, y, z)和姿态(四元数)信息
+- 提供高精度的位姿数据
 
-### 使用说明
-1. **运行节点**：
-   - 确保ROS2环境已正确配置，并安装了必要的依赖项。
-   - 使用以下命令运行节点：
-     ```bash
-     ros2 run <package_name> robot_pose_publisher
-     ```
+### 3. 消息发布
+- 支持两种消息格式：Pose和PoseStamped
+- 可配置发布频率和消息类型
+- 自动添加时间戳和坐标系信息
 
-2. **验证节点功能**：
-   - 使用`ros2 topic echo /robot_pose`命令查看发布的机器人位姿数据。
-   - 确保TF变换框架中存在从`/map`到`/base_link`的变换，否则节点将无法正常工作。
+### 4. 异常处理
+- 处理TF变换查找失败的情况
+- 在坐标变换不可用时跳过发布
+- 提供稳定的位姿数据流
 
-3. **参数调整**：
-   - 根据实际应用场景，可以调整节点中的参数，如`map_frame`、`base_frame`和`is_stamped`，通过命令行或配置文件进行设置。
+## 使用说明
 
-通过以上修改和优化，可以提高节点的稳定性和可维护性，使其更好地适应实际应用需求。
+### 1. 启动位姿发布节点
+```bash
+# 使用默认参数启动
+ros2 run robot_pose_publisher_ros2 robot_pose_publisher
+
+# 使用启动文件启动
+ros2 launch robot_pose_publisher_ros2 robot_pose_publisher_launch.py
+```
+
+### 2. 配置参数启动
+```bash
+# 自定义坐标系名称
+ros2 run robot_pose_publisher_ros2 robot_pose_publisher \
+  --ros-args \
+  -p map_frame:=map \
+  -p base_frame:=base_footprint \
+  -p is_stamped:=true
+```
+
+### 3. 查看位姿信息
+```bash
+# 查看位姿消息(非时间戳版本)
+ros2 topic echo /robot_pose
+
+# 查看位姿消息(时间戳版本)
+ros2 topic echo /robot_pose
+```
+
+### 4. 监控发布频率
+```bash
+# 查看话题发布频率
+ros2 topic hz /robot_pose
+
+# 查看话题信息
+ros2 topic info /robot_pose
+```
+
+### 5. 参数动态配置
+```bash
+# 查看当前参数
+ros2 param list /robot_pose_publisher
+
+# 修改参数
+ros2 param set /robot_pose_publisher map_frame odom
+ros2 param set /robot_pose_publisher base_frame base_link
+ros2 param set /robot_pose_publisher is_stamped true
+```
+
+## 消息格式
+
+### geometry_msgs/msg/Pose
+```yaml
+position:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+orientation:
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 1.0
+```
+
+### geometry_msgs/msg/PoseStamped
+```yaml
+header:
+  stamp:
+    sec: 0
+    nanosec: 0
+  frame_id: "map"
+pose:
+  position:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  orientation:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+```
+
+## 应用场景
+
+### 1. 机器人导航
+- 为导航系统提供实时位姿信息
+- 支持路径规划和轨迹跟踪
+- 用于导航状态监控
+
+### 2. 定位系统
+- 与SLAM系统配合使用
+- 提供机器人定位结果
+- 支持多传感器融合定位
+
+### 3. 数据记录
+- 记录机器人运动轨迹
+- 用于离线分析和评估
+- 支持数据可视化
+
+### 4. 上层应用
+- 为应用层提供位姿接口
+- 支持远程监控和控制
+- 用于任务规划和执行
+
+## 依赖项
+- ROS2 (机器人操作系统)
+- tf2_ros (坐标变换库)
+- geometry_msgs (几何消息类型)
+- rclcpp (ROS2 C++客户端库)
+
+## 注意事项
+1. 确保TF树完整，map到base_link的变换可用
+2. 根据实际机器人配置修改坐标系名称
+3. 合理设置发布频率，避免过高的CPU占用
+4. 在SLAM或定位系统启动后再启动此节点
+5. 注意坐标系的一致性，避免混淆不同的坐标系
+6. 监控TF变换的时效性，避免使用过时的数据
+7. 根据应用需求选择合适的消息类型(Pose或PoseStamped)
